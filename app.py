@@ -15,7 +15,6 @@ st.set_page_config(page_title="Educato Sınav Asistanı", page_icon="💊", layo
 st.title("💊 Educato Tarzı Sesli Sınav Asistanı")
 st.write("Slaytını yükle; esprili sesli asistan seni sınava hazırlasın!")
 
-# Yan panelde API Key girişi (Arkadaşların da rahatça girebilsin diye)
 api_key = st.text_input("Google Gemini API Anahtarınızı Girin:", type="password")
 uploaded_file = st.file_uploader("Ders Notunu Yükle (PDF)", type="pdf")
 
@@ -41,21 +40,11 @@ if uploaded_file is not None and api_key:
             try:
                 genai.configure(api_key=api_key)
                 
-                # Otomatik aktif Flash modelini bulma
-                available_models = [
-                    m.name for m in genai.list_models() 
-                    if 'generateContent' in m.supported_generation_methods
-                ]
-                flash_models = [m for m in available_models if 'flash' in m.lower()]
-                selected_model = flash_models[0] if flash_models else (available_models[0] if available_models else 'gemini-1.5-flash')
-
-                model = genai.GenerativeModel(selected_model)
-                
                 # PDF Metnini Çıkarma
                 pdf_reader = PyPDF2.PdfReader(uploaded_file)
                 text = ""
                 for page in pdf_reader.pages:
-                    text += page.extract_text() + "\n"
+                    text += (page.extract_text() or "") + "\n"
                 text = text[:15000]
 
                 # Educato Tarzı Esprili & Argolu Prompt
@@ -87,8 +76,31 @@ if uploaded_file is not None and api_key:
                 Ders Notu:
                 {text}
                 """
-                
-                response = model.generate_content(prompt)
+
+                # Google'ın önerdiği modelleri sırayla deneyen koruma döngüsü
+                candidate_models = [
+                    'gemini-3.8-flash',
+                    'gemini-1.5-flash',
+                    'gemini-2.0-flash',
+                    'gemini-1.5-pro'
+                ]
+
+                response = None
+                last_error = None
+
+                for model_name in candidate_models:
+                    try:
+                        model = genai.GenerativeModel(model_name)
+                        response = model.generate_content(prompt)
+                        if response and response.text:
+                            break
+                    except Exception as e:
+                        last_error = e
+                        continue
+
+                if not response:
+                    raise Exception(f"Modellere bağlanılamadı. Hata: {last_error}")
+
                 cleaned_text = response.text.replace("```json", "").replace("```", "").strip()
                 st.session_state.sorular = json.loads(cleaned_text)
                 st.success("Test ve sesli yanıtlar hazır!")
@@ -118,7 +130,6 @@ if st.session_state.sorular:
                 
                 st.info(f"💡 **Taktik / Püf Noktası:** {q['puf_noktasi']}")
                 
-                # Ses Oynatıcı (Otomatik Çalar)
                 audio_file = metni_seslendir(ses_metni)
                 if audio_file:
                     st.audio(audio_file, format="audio/mp3", autoplay=True)
