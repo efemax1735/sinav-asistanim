@@ -54,10 +54,8 @@ def hizli_ses_oynat(metin):
 
 def get_gemini_response(api_key, prompt_text):
     client = genai.Client(api_key=api_key)
-    # Hatalı eski modeller tamamen silindi. Sadece Google'ın kabul ettiği güncel model kullanılıyor.
     models = ["gemini-3.8-flash"]
     last_error = ""
-    
     for m in models:
         for attempt in range(3):
             try:
@@ -66,7 +64,6 @@ def get_gemini_response(api_key, prompt_text):
                     return res.text
             except Exception as e:
                 last_error = str(e)
-                # Sadece anlık yoğunluk (503/429) varsa bekleyip tekrar dener
                 if "503" in last_error or "UNAVAILABLE" in last_error or "429" in last_error:
                     time.sleep(3)
                 else:
@@ -75,14 +72,13 @@ def get_gemini_response(api_key, prompt_text):
 
 if uploaded_file is not None and raw_api_key:
     if st.button("🚀 Testi Hazırla"):
-        # Klavyenin eklediği kirlilikleri temizler
         clean_key = raw_api_key.split()[0].strip()
         
         if not clean_key.startswith(("AIza", "AQ.")):
             st.error("Lütfen geçerli bir Google API anahtarı girin.")
             st.stop()
             
-        with st.spinner("Ders notu inceleniyor... (Google sunucu yoğunluğuna göre 10-15 sn sürebilir)"):
+        with st.spinner("Ders notu inceleniyor... Lütfen bekleyin."):
             try:
                 pdf_reader = PyPDF2.PdfReader(uploaded_file)
                 text = ""
@@ -126,4 +122,22 @@ if st.session_state.sorular:
         st.subheader(f"Soru {i+1}")
         st.write(q["soru"])
         
-        secenekler = [f"A) {q['A']}", f
+        # Tablet kopyalama hatasını önlemek için güvenli tek satır formatı
+        secenekler = [f"A) {q['A']}", f"B) {q['B']}", f"C) {q['C']}", f"D) {q['D']}", f"E) {q['E']}"]
+        secim = st.radio("Cevabınız:", secenekler, key=f"rad_{i}", index=None)
+        
+        if st.button("Cevabı Kontrol Et 🔊", key=f"btn_{i}"):
+            if secim:
+                secilen = secim.split(")")[0]
+                if secilen == q["dogru_cevap"]:
+                    st.success(f"✅ {q['dogru_tepki']}")
+                    ses = f"{q['dogru_tepki']} {q['puf_noktasi']}"
+                else:
+                    st.error(f"❌ {q['yanlis_tepki']} (Doğru Cevap: {q['dogru_cevap']})")
+                    ses = f"{q['yanlis_tepki']} Doğru cevap {q['dogru_cevap']} şıkkıdır. {q['puf_noktasi']}"
+                    
+                st.info(f"💡 **Sınav Püf Noktası:** {q['puf_noktasi']}")
+                hizli_ses_oynat(ses)
+            else:
+                st.warning("Lütfen bir seçenek işaretleyin.")
+        st.write("---")
