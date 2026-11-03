@@ -18,7 +18,7 @@ st.set_page_config(
     page_title="Akademik Sınav Asistanı", page_icon="🎓", layout="centered"
 )
 
-# Times New Roman Font ve Büyük Punto Tasarımı
+# Times New Roman Font ve Büyük Okunaklı Punto Tasarımı
 st.markdown(
     """
     <style>
@@ -28,12 +28,12 @@ st.markdown(
         }
         h1 {
             font-family: 'Times New Roman', Times, serif !important;
-            font-size: 34px !important;
+            font-size: 32px !important;
             font-weight: bold !important;
         }
         h2, h3 {
             font-family: 'Times New Roman', Times, serif !important;
-            font-size: 26px !important;
+            font-size: 24px !important;
             font-weight: bold !important;
         }
         .stButton button {
@@ -92,6 +92,7 @@ if uploaded_file is not None and api_key:
     with st.spinner("Ders notu inceleniyor ve sorular hazırlanıyor..."):
       try:
         genai.configure(api_key=clean_api_key)
+
         pdf_reader = PyPDF2.PdfReader(uploaded_file)
         text = ""
         for page in pdf_reader.pages:
@@ -121,30 +122,23 @@ if uploaded_file is not None and api_key:
             f" Notu:\n{text}"
         )
 
-        candidate_models = [
-            "gemini-1.5-flash",
-            "gemini-2.0-flash",
-            "gemini-1.5-pro",
-        ]
+        models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
         response = None
+        last_err = None
 
-        for m_name in candidate_models:
+        for m_name in models_to_try:
           try:
-            m_obj = genai.GenerativeModel(
-                m_name, generation_config={"response_mime_type": "application/json"}
-            )
+            m_obj = genai.GenerativeModel(m_name)
             res = m_obj.generate_content(prompt)
             if res and res.text:
               response = res
               break
-          except Exception:
+          except Exception as err:
+            last_err = err
             continue
 
         if not response or not response.text:
-          st.error(
-              "Model bağlantısı sağlanamadı. Lütfen API anahtarınızı kontrol"
-              " edin."
-          )
+          st.error(f"API / Model Hatası Detayı: {last_err}")
           st.stop()
 
         raw_response = response.text.strip()
@@ -159,7 +153,7 @@ if uploaded_file is not None and api_key:
         st.success("Sınav soruları ve sesli açıklamalar hazır!")
 
       except Exception as e:
-        st.error(f"Bir hata oluştu: {e}")
+        st.error(f"İşlem sırasında hata oluştu: {e}")
 
 if st.session_state.sorular:
   st.write("---")
