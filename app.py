@@ -1,9 +1,11 @@
+import base64
 import io
 import json
 import re
 import PyPDF2
 import google.generativeai as genai
 import streamlit as st
+import streamlit.components.v1 as components
 
 try:
   from gtts import gTTS
@@ -13,11 +15,14 @@ except ImportError:
   HAS_TTS = False
 
 st.set_page_config(
-    page_title="Educato Sınav Asistanı", page_icon="💊", layout="centered"
+    page_title="Akademik Sınav Asistanı", page_icon="🎓", layout="centered"
 )
 
-st.title("💊 Educato Tarzı Sesli Sınav Asistanı")
-st.write("Slaytını yükle; esprili sesli asistan seni sınava hazırlasın!")
+st.title("🎓 Akademik Sınav ve Test Asistanı")
+st.write(
+    "Ders slaytınızı (PDF) yükleyin; yapay zeka sınav düzeyinde resmi sorular"
+    " hazırlasın."
+)
 
 api_key = st.text_input("Google Gemini API Anahtarınızı Girin:", type="password")
 uploaded_file = st.file_uploader("Ders Notunu Yükle (PDF)", type="pdf")
@@ -26,17 +31,32 @@ if "sorular" not in st.session_state:
   st.session_state.sorular = None
 
 
-def metni_seslendir(metin):
+def hizli_ses_oynat(metin):
+  """Sesli asistanı insan konuşma hızına (1.25x) hızlandırarak oynatır."""
   if not HAS_TTS:
-    return None
+    return
   try:
     tts = gTTS(text=metin, lang="tr")
     fp = io.BytesIO()
     tts.write_to_fp(fp)
     fp.seek(0)
-    return fp
+    b64_audio = base64.b64encode(fp.read()).decode("utf-8")
+
+    # HTML5 Audio + JS PlaybackRate (Doğal insan konuşma temposu)
+    html_code = f"""
+        <audio id="tts_audio" autoplay controls style="width:100%;">
+            <source src="data:audio/mp3;base64,{b64_audio}" type="audio/mp3">
+        </audio>
+        <script>
+            var audio = document.getElementById("tts_audio");
+            if (audio) {{
+                audio.playbackRate = 1.25;
+            }}
+        </script>
+        """
+    components.html(html_code, height=65)
   except Exception:
-    return None
+    pass
 
 
 if uploaded_file is not None and api_key:
@@ -46,9 +66,7 @@ if uploaded_file is not None and api_key:
       st.error("Lütfen geçerli bir API anahtarı girin!")
       st.stop()
 
-    with st.spinner(
-        "Asistan aktif modelleri sorguluyor ve soruları hazırlıyor..."
-    ):
+    with st.spinner("Ders notu inceleniyor ve sınav soruları hazırlanıyor..."):
       try:
         genai.configure(api_key=clean_api_key)
 
@@ -62,35 +80,40 @@ if uploaded_file is not None and api_key:
 
         if not text.strip():
           st.error(
-              "PDF'ten metin okunamadı. Lütfen PDF'in resim/taranmış belge olmadığından"
-              " emin olun."
+              "PDF dosyasından metin okunamadı. Lütfen metin içeren bir PDF"
+              " yükleyin."
           )
           st.stop()
 
         text = text[:15000]
 
+        # Resmi ve Akademik Prompt
         prompt = f"""
-                Sen Educato tarzında, öğrenci diliyle konuşan, çok esprili, hafif argolu, samimi, komik ama bilgili bir sınav koçusun.
-                Aşağıdaki ders slaytını okuyarak 3 adet 5 şıklı çoktan seçmeli soru oluştur.
+                Sen üniversite düzeyinde (vize ve final sınavı) sorular hazırlayan uzman bir akademik sınav koçusun.
+                Aşağıdaki ders slaytını okuyarak öğrenciler için resmi dille yazılmış, orta-zor düzeyde 3 adet 5 şıklı çoktan seçmeli soru oluştur.
+                
+                Kurallar:
+                - Dil tamamen resmi, ciddi, net ve akademik sınav standartlarına uygun olmalıdır. Laubali veya samimi ifadeler kesinlikle kullanılmamalıdır.
+                - Sorular ders slaytındaki önemli bilgileri, temel tanımları ve mekanizmaları tam ölçmelidir.
                 
                 Cevaplar için şunları hazırla:
-                1. "dogru_tepki": Öğrenci doğru bilirse onu gaza getirecek komik, hafif argolu tebrik cümlesi.
-                2. "yanlis_tepki": Öğrenci yanlış yaparsa tatlı-sert dalga geçecek esprili eleştiri.
-                3. "puf_noktasi": Konunun sınavda kesin çıkacak püf noktası veya akılda kalıcı şifresi/taktiği.
+                1. "dogru_tepki": Doğru yanıt için resmi bir onay cümlesi (Ör: "Tebrikler, soruyu doğru yanıtladınız.").
+                2. "yanlis_tepki": Yanlış yanıt için açıklayıcı akademik bildirim (Ör: "Maalesef yanlış yanıt. Doğru seçenek ile slayttaki temel kavram uyuşmaktadır.").
+                3. "puf_noktasi": Sınavda çıkma ihtimali yüksek olan akademik bilgi notu veya püf noktası.
                 
                 Çıktıyı SADECE aşağıdaki JSON formatında ver:
                 [
                     {{
-                        "soru": "Soru metni",
+                        "soru": "Soru metni...",
                         "A": "A şıkkı",
                         "B": "B şıkkı",
                         "C": "C şıkkı",
                         "D": "D şıkkı",
                         "E": "E şıkkı",
                         "dogru_cevap": "A",
-                        "dogru_tepki": "Helal be! Konuyu yutmuşsun, vizede derece geliyor!",
-                        "yanlis_tepki": "Kanka naptın ya? Bu cevapla vizeden 20 alıp büte kalırız, gözünü seveyim dikkatli oku!",
-                        "puf_noktasi": "Püf Noktası: Bu mekanizmayı unutma!"
+                        "dogru_tepki": "Tebrikler, doğru yanıt!",
+                        "yanlis_tepki": "Maalesef yanlış yanıt.",
+                        "puf_noktasi": "Akademik Püf Noktası: ..."
                     }}
                 ]
                 
@@ -98,60 +121,49 @@ if uploaded_file is not None and api_key:
                 {text}
                 """
 
-        # Hesabındaki aktif modelleri canlı sorgula
-        available_models = []
-        for m in genai.list_models():
-          if "generateContent" in m.supported_generation_methods:
-            available_models.append(m.name)
-
-        if not available_models:
-          st.error("API anahtarınızla erişilebilen aktif bir model bulunamadı.")
-          st.stop()
-
-        # Strict JSON çıktı yapılandırması
-        generation_config = {"response_mime_type": "application/json"}
-
+        # Hızlı Doğrudan Model Bağlantısı (Ekstra ağ sorgusu yapmadan en hızlı modelleri dener)
+        candidate_models = [
+            "gemini-1.5-flash",
+            "gemini-2.0-flash",
+            "gemini-2.5-flash",
+            "gemini-1.5-pro",
+        ]
         response = None
-        for model_name in available_models:
+
+        for model_name in candidate_models:
           try:
             m_obj = genai.GenerativeModel(
-                model_name, generation_config=generation_config
+                model_name, generation_config={"response_mime_type": "application/json"}
             )
             res = m_obj.generate_content(prompt)
             if res and res.text:
               response = res
               break
           except Exception:
-            try:
-              m_obj = genai.GenerativeModel(model_name)
-              res = m_obj.generate_content(prompt)
-              if res and res.text:
-                response = res
-                break
-            except Exception:
-              continue
+            continue
 
         if not response or not response.text:
-          st.error("Modelden yanıt alınamadı.")
+          st.error(
+              "Model bağlantısı sağlanamadı. Lütfen API anahtarınızı kontrol"
+              " edin."
+          )
           st.stop()
 
         raw_response = response.text.strip()
-
-        # Regex ile sadece JSON dizisini cımbızla çekme
         json_match = re.search(r"\[\s*\{.*\}\s*\]", raw_response, re.DOTALL)
-        if json_match:
-          json_str = json_match.group(0)
-        else:
-          json_str = (
-              raw_response.replace("```json", "").replace("```", "").strip()
-          )
+        json_str = (
+            json_match.group(0)
+            if json_match
+            else raw_response.replace("```json", "").replace("```", "").strip()
+        )
 
         st.session_state.sorular = json.loads(json_str)
-        st.success("Test ve sesli yanıtlar hazır!")
+        st.success("Sınav soruları ve sesli açıklamalar hazır!")
 
       except Exception as e:
-        st.error(f"Genel Hata: {e}")
+        st.error(f"Bir hata oluştu: {e}")
 
+# Soruları ve Sesli Asistanı Gösterme
 if st.session_state.sorular:
   st.write("---")
   for i, q in enumerate(st.session_state.sorular):
@@ -167,26 +179,4 @@ if st.session_state.sorular:
     ]
     secim = st.radio("Cevabınız:", secenekler, key=f"soru_{i}", index=None)
 
-    if st.button("Cevabı Kontrol Et 🔊", key=f"btn_{i}"):
-      if secim:
-        secilen_harf = secim.split(")")[0]
-        if secilen_harf == q["dogru_cevap"]:
-          st.success(f"✅ {q['dogru_tepki']}")
-          ses_metni = f"{q['dogru_tepki']} {q['puf_noktasi']}"
-        else:
-          st.error(
-              f"❌ {q['yanlis_tepki']} (Doğru Cevap: {q['dogru_cevap']})"
-          )
-          ses_metni = (
-              f"{q['yanlis_tepki']} Doğru cevap {q['dogru_cevap']} şıkkıydı."
-              f" {q['puf_noktasi']}"
-          )
-
-        st.info(f"💡 **Taktik / Püf Noktası:** {q['puf_noktasi']}")
-
-        audio_file = metni_seslendir(ses_metni)
-        if audio_file:
-          st.audio(audio_file, format="audio/mp3", autoplay=True)
-      else:
-        st.warning("Önce bir şık seç kanka!")
-    st.write("---")
+    if st.button("Cevabı Kontrol Et 🔊", key=f"btn_{i
