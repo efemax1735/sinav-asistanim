@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import re
+import time
 import PyPDF2
 import streamlit as st
 import streamlit.components.v1 as components
@@ -116,71 +117,14 @@ if uploaded_file is not None and raw_api_key:
                 if USE_NEW_SDK:
                     client = genai.Client(api_key=clean_key)
                     for model_name in candidate_models:
-                        try:
-                            res = client.models.generate_content(
-                                model=model_name,
-                                contents=prompt
-                            )
-                            if res and res.text:
-                                response_text = res.text
-                                break
-                        except Exception as ex:
-                            last_error_msg = str(ex)
-                            continue
-                else:
-                    genai_legacy.configure(api_key=clean_key)
-                    for model_name in candidate_models:
-                        try:
-                            m_obj = genai_legacy.GenerativeModel(model_name)
-                            res = m_obj.generate_content(prompt)
-                            if res and res.text:
-                                response_text = res.text
-                                break
-                        except Exception as ex:
-                            last_error_msg = str(ex)
-                            continue
-
-                if not response_text:
-                    st.error(f"Google API Hatası: {last_error_msg}")
-                    st.stop()
-
-                raw_txt = response_text.strip()
-                json_match = re.search(r"\[\s*\{.*\}\s*\]", raw_txt, re.DOTALL)
-                json_str = json_match.group(0) if json_match else raw_txt.replace("```json", "").replace("```", "").strip()
-
-                st.session_state.sorular = json.loads(json_str)
-                st.success("Sınav soruları ve sesli açıklamalar hazır!")
-
-            except Exception as e:
-                st.error(f"Sistem Hatası: {e}")
-
-if st.session_state.sorular:
-    st.write("---")
-    for i, q in enumerate(st.session_state.sorular):
-        st.subheader(f"Soru {i+1}")
-        st.write(q["soru"])
-
-        secenekler = [
-            f"A) {q['A']}",
-            f"B) {q['B']}",
-            f"C) {q['C']}",
-            f"D) {q['D']}",
-            f"E) {q['E']}"
-        ]
-        secim = st.radio("Cevabınız:", secenekler, key=f"rad_{i}", index=None)
-
-        if st.button("Cevabı Kontrol Et 🔊", key=f"btn_{i}"):
-            if secim:
-                secilen = secim.split(")")[0]
-                if secilen == q["dogru_cevap"]:
-                    st.success(f"✅ {q['dogru_tepki']}")
-                    ses = f"{q['dogru_tepki']} {q['puf_noktasi']}"
-                else:
-                    st.error(f"❌ {q['yanlis_tepki']} (Doğru Cevap: {q['dogru_cevap']})")
-                    ses = f"{q['yanlis_tepki']} Doğru cevap {q['dogru_cevap']} şıkkıdır. {q['puf_noktasi']}"
-
-                st.info(f"💡 **Sınav Püf Noktası:** {q['puf_noktasi']}")
-                hizli_ses_oynat(ses)
-            else:
-                st.warning("Lütfen bir seçenek işaretleyin.")
-        st.write("---")
+                        for attempt in range(2):
+                            try:
+                                res = client.models.generate_content(
+                                    model=model_name,
+                                    contents=prompt
+                                )
+                                if res and res.text:
+                                    response_text = res.text
+                                    break
+                            except Exception as ex:
+                                last_error
