@@ -6,7 +6,7 @@ import PyPDF2
 import streamlit as st
 import streamlit.components.v1 as components
 
-# Google'ın hem yeni hem eski kütüphaneleriyle tam uyumluluk
+# Google'ın SDK kütüphane desteği
 try:
   from google import genai
 
@@ -88,8 +88,8 @@ def hizli_ses_oynat(metin):
 
 if uploaded_file is not None and raw_api_key:
   if st.button("🚀 Testi Hazırla"):
-    # Klavyeden veya yapıştırmadan gelen tüm yabancı metinleri (visibili vb.) temizleme
-    clean_key = re.sub(r"[^a-zA-Z0-9_\-]", "", raw_api_key.strip())
+    # Anahtarın yapısını (nokta dahil) bozmadan sadece baştaki ve sondaki boşlukları temizliyoruz
+    clean_key = raw_api_key.strip()
 
     if not clean_key:
       st.error("Geçersiz API Anahtarı! Lütfen kutucuğu kontrol edin.")
@@ -126,11 +126,11 @@ if uploaded_file is not None and raw_api_key:
         response_text = None
         last_error_msg = ""
 
-        # Google API tarafının talep ettiği güncel modeller
         candidate_models = [
-            "gemini-3.8-flash",
-            "gemini-3.1-pro-preview",
             "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-3.8-flash",
         ]
 
         if USE_NEW_SDK:
@@ -194,22 +194,3 @@ if st.session_state.sorular:
     secim = st.radio("Cevabınız:", secenekler, key=f"rad_{i}", index=None)
 
     if st.button("Cevabı Kontrol Et 🔊", key=f"btn_{i}"):
-      if secim:
-        secilen = secim.split(")")[0]
-        if secilen == q["dogru_cevap"]:
-          st.success(f"✅ {q['dogru_tepki']}")
-          ses = f"{q['dogru_tepki']} {q['puf_noktasi']}"
-        else:
-          st.error(
-              f"❌ {q['yanlis_tepki']} (Doğru Cevap: {q['dogru_cevap']})"
-          )
-          ses = (
-              f"{q['yanlis_tepki']} Doğru cevap {q['dogru_cevap']} şıkkıdır."
-              f" {q['puf_noktasi']}"
-          )
-
-        st.info(f"💡 **Sınav Püf Noktası:** {q['puf_noktasi']}")
-        hizli_ses_oynat(ses)
-      else:
-        st.warning("Lütfen bir seçenek işaretleyin.")
-    st.write("---")
