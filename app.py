@@ -54,7 +54,8 @@ def hizli_ses_oynat(metin):
 
 def get_gemini_response(api_key, prompt_text):
     client = genai.Client(api_key=api_key)
-    models = ["gemini-1.5-flash", "gemini-2.5-flash"]
+    # Hata veren eski modeller kaldırıldı, Google'ın istediği güncel model sabitlendi.
+    models = ["gemini-3.8-flash"]
     last_error = ""
     for m in models:
         for _ in range(2):
@@ -65,7 +66,7 @@ def get_gemini_response(api_key, prompt_text):
             except Exception as e:
                 last_error = str(e)
                 time.sleep(1.5)
-    raise Exception(f"Sunucu yoğunluğu veya bağlantı hatası: {last_error}")
+    raise Exception(f"Google API Hatası: {last_error}")
 
 if uploaded_file is not None and raw_api_key:
     if st.button("🚀 Testi Hazırla"):
