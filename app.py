@@ -40,9 +40,14 @@ def metni_seslendir(metin):
 
 if uploaded_file is not None and api_key:
   if st.button("🚀 Testi Hazırla"):
-    with st.spinner("Asistan slaytları inceliyor..."):
+    clean_api_key = api_key.strip()
+    if not clean_api_key:
+      st.error("Lütfen geçerli bir API anahtarı girin!")
+      st.stop()
+
+    with st.spinner("Asistan slaytları inceliyor ve soruları hazırlıyor..."):
       try:
-        genai.configure(api_key=api_key.strip())
+        genai.configure(api_key=clean_api_key)
 
         # PDF Metnini Çıkarma
         pdf_reader = PyPDF2.PdfReader(uploaded_file)
@@ -82,46 +87,12 @@ if uploaded_file is not None and api_key:
                 {text}
                 """
 
-        # Dinamik model seçimi ve çoklu yedekleme
-        response = None
-
-        # 1. Yöntem: Canlı listeyi sorgula
-        try:
-          models = [
-              m.name
-              for m in genai.list_models()
-              if "generateContent" in m.supported_generation_methods
-          ]
-          flash_m = [m for m in models if "flash" in m.lower()]
-          target_model = (
-              flash_m[0] if flash_m else (models[0] if models else None)
-          )
-          if target_model:
-            m_obj = genai.GenerativeModel(target_model)
-            response = m_obj.generate_content(prompt)
-        except Exception:
-          pass
-
-        # 2. Yöntem: Manuel yedek listesi
-        if not response or not response.text:
-          for m_name in [
-              "gemini-1.5-flash",
-              "gemini-2.0-flash",
-              "gemini-3.8-flash",
-          ]:
-            try:
-              m_obj = genai.GenerativeModel(m_name)
-              response = m_obj.generate_content(prompt)
-              if response and response.text:
-                break
-            except Exception:
-              continue
+        # Standart ve en kararlı ücretsiz model
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(prompt)
 
         if not response or not response.text:
-          st.error(
-              "Model bağlantısı sağlanamadı. Lütfen API anahtarınızı kontrol"
-              " edin."
-          )
+          st.error("Yapay zekadan yanıt alınamadı.")
           st.stop()
 
         cleaned_text = (
@@ -131,7 +102,7 @@ if uploaded_file is not None and api_key:
         st.success("Test ve sesli yanıtlar hazır!")
 
       except Exception as e:
-        st.error(f"Bir hata oluştu: {e}")
+        st.error(f"Detaylı Hata Mesajı: {e}")
 
 if st.session_state.sorular:
   st.write("---")
