@@ -45,7 +45,9 @@ if uploaded_file is not None and api_key:
       st.error("Lütfen geçerli bir API anahtarı girin!")
       st.stop()
 
-    with st.spinner("Asistan slaytları inceliyor ve soruları hazırlıyor..."):
+    with st.spinner(
+        "Asistan aktif modelleri sorguluyor ve soruları hazırlıyor..."
+    ):
       try:
         genai.configure(api_key=clean_api_key)
 
@@ -87,12 +89,33 @@ if uploaded_file is not None and api_key:
                 {text}
                 """
 
-        # Standart ve en kararlı ücretsiz model
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(prompt)
+        # Hesabındaki aktif modelleri canlı sorgula
+        available_models = []
+        for m in genai.list_models():
+          if "generateContent" in m.supported_generation_methods:
+            available_models.append(m.name)
+
+        if not available_models:
+          st.error(
+              "API anahtarınızla erişilebilen aktif bir model bulunamadı. Lütfen"
+              " API anahtarınızı kontrol edin."
+          )
+          st.stop()
+
+        # Hesabındaki modelleri sırayla dene, ilk çalışanla devam et
+        response = None
+        for model_name in available_models:
+          try:
+            m_obj = genai.GenerativeModel(model_name)
+            res = m_obj.generate_content(prompt)
+            if res and res.text:
+              response = res
+              break
+          except Exception:
+            continue
 
         if not response or not response.text:
-          st.error("Yapay zekadan yanıt alınamadı.")
+          st.error("Model bağlantısı kurulamadı.")
           st.stop()
 
         cleaned_text = (
@@ -102,7 +125,7 @@ if uploaded_file is not None and api_key:
         st.success("Test ve sesli yanıtlar hazır!")
 
       except Exception as e:
-        st.error(f"Detaylı Hata Mesajı: {e}")
+        st.error(f"Genel Hata: {e}")
 
 if st.session_state.sorular:
   st.write("---")
