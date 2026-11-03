@@ -26,7 +26,6 @@ if "sorular" not in st.session_state:
 
 
 def metni_seslendir(metin):
-  """Metni Türkçe ses dosyasına dönüştürür."""
   if not HAS_TTS:
     return None
   try:
@@ -41,38 +40,17 @@ def metni_seslendir(metin):
 
 if uploaded_file is not None and api_key:
   if st.button("🚀 Testi Hazırla"):
-    with st.spinner(
-        "Asistan aktif modelleri sorguluyor ve slaytı inceliyor..."
-    ):
+    with st.spinner("Asistan slaytları inceliyor..."):
       try:
         genai.configure(api_key=api_key.strip())
 
-        active_models = []
-        for m in genai.list_models():
-          if "generateContent" in m.supported_generation_methods:
-            active_models.append(m.name)
-
-        if not active_models:
-          st.error("API anahtarınızla erişilebilen aktif bir model bulunamadı.")
-          st.stop()
-
-        selected_model_name = None
-        for m_name in active_models:
-          if "flash" in m_name.lower():
-            selected_model_name = m_name
-            break
-
-        if not selected_model_name:
-          selected_model_name = active_models[0]
-
-        model = genai.GenerativeModel(selected_model_name)
-
+        # PDF Metnini Çıkarma
         pdf_reader = PyPDF2.PdfReader(uploaded_file)
         text = ""
         for page in pdf_reader.pages:
-          extracted = page.extract_text()
-          if extracted:
-            text += extracted + "\n"
+          t = page.extract_text()
+          if t:
+            text += t + "\n"
         text = text[:15000]
 
         prompt = f"""
@@ -81,7 +59,7 @@ if uploaded_file is not None and api_key:
                 
                 Cevaplar için şunları hazırla:
                 1. "dogru_tepki": Öğrenci doğru bilirse onu gaza getirecek komik, hafif argolu tebrik cümlesi.
-                2. "yanlis_tepki": Öğrenci yanlış yaparsa tatlı-sert dalga geçecek ("Kanka naptın ya...", "Bu soru vizede çıksa patlardın" gibi) esprili eleştiri.
+                2. "yanlis_tepki": Öğrenci yanlış yaparsa tatlı-sert dalga geçecek esprili eleştiri.
                 3. "puf_noktasi": Konunun sınavda kesin çıkacak püf noktası veya akılda kalıcı şifresi/taktiği.
                 
                 Çıktıyı SADECE aşağıdaki JSON formatında ver:
@@ -96,7 +74,7 @@ if uploaded_file is not None and api_key:
                         "dogru_cevap": "A",
                         "dogru_tepki": "Helal be! Konuyu yutmuşsun, vizede derece geliyor!",
                         "yanlis_tepki": "Kanka naptın ya? Bu cevapla vizeden 20 alıp büte kalırız, gözünü seveyim dikkatli oku!",
-                        "puf_noktasi": "Püf Noktası: Bu mekanizmayı unutma, hoca kesin buradan vurur!"
+                        "puf_noktasi": "Püf Noktası: Bu mekanizmayı unutma!"
                     }}
                 ]
                 
@@ -104,7 +82,48 @@ if uploaded_file is not None and api_key:
                 {text}
                 """
 
-        response = model.generate_content(prompt)
+        # Dinamik model seçimi ve çoklu yedekleme
+        response = None
+
+        # 1. Yöntem: Canlı listeyi sorgula
+        try:
+          models = [
+              m.name
+              for m in genai.list_models()
+              if "generateContent" in m.supported_generation_methods
+          ]
+          flash_m = [m for m in models if "flash" in m.lower()]
+          target_model = (
+              flash_m[0] if flash_m else (models[0] if models else None)
+          )
+          if target_model:
+            m_obj = genai.GenerativeModel(target_model)
+            response = m_obj.generate_content(prompt)
+        except Exception:
+          pass
+
+        # 2. Yöntem: Manuel yedek listesi
+        if not response or not response.text:
+          for m_name in [
+              "gemini-1.5-flash",
+              "gemini-2.0-flash",
+              "gemini-3.8-flash",
+          ]:
+            try:
+              m_obj = genai.GenerativeModel(m_name)
+              response = m_obj.generate_content(prompt)
+              if response and response.text:
+                break
+            except Exception:
+              continue
+
+        if not response or not response.text:
+          st.error(
+              "Model bağlantısı sağlanamadı. Lütfen API anahtarınızı kontrol"
+              " edin."
+          )
+          st.stop()
+
         cleaned_text = (
             response.text.replace("```json", "").replace("```", "").strip()
         )
