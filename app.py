@@ -1,10 +1,11 @@
+import io
 import json
+import re
 import PyPDF2
 import google.generativeai as genai
 import streamlit as st
 
 try:
-  import io
   from gtts import gTTS
 
   HAS_TTS = True
@@ -58,6 +59,14 @@ if uploaded_file is not None and api_key:
           t = page.extract_text()
           if t:
             text += t + "\n"
+
+        if not text.strip():
+          st.error(
+              "PDF'ten metin okunamadı. Lütfen PDF'in resim/taranmış belge olmadığından"
+              " emin olun."
+          )
+          st.stop()
+
         text = text[:15000]
 
         prompt = f"""
@@ -96,32 +105,48 @@ if uploaded_file is not None and api_key:
             available_models.append(m.name)
 
         if not available_models:
-          st.error(
-              "API anahtarınızla erişilebilen aktif bir model bulunamadı. Lütfen"
-              " API anahtarınızı kontrol edin."
-          )
+          st.error("API anahtarınızla erişilebilen aktif bir model bulunamadı.")
           st.stop()
 
-        # Hesabındaki modelleri sırayla dene, ilk çalışanla devam et
+        # Strict JSON çıktı yapılandırması
+        generation_config = {"response_mime_type": "application/json"}
+
         response = None
         for model_name in available_models:
           try:
-            m_obj = genai.GenerativeModel(model_name)
+            m_obj = genai.GenerativeModel(
+                model_name, generation_config=generation_config
+            )
             res = m_obj.generate_content(prompt)
             if res and res.text:
               response = res
               break
           except Exception:
-            continue
+            try:
+              m_obj = genai.GenerativeModel(model_name)
+              res = m_obj.generate_content(prompt)
+              if res and res.text:
+                response = res
+                break
+            except Exception:
+              continue
 
         if not response or not response.text:
-          st.error("Model bağlantısı kurulamadı.")
+          st.error("Modelden yanıt alınamadı.")
           st.stop()
 
-        cleaned_text = (
-            response.text.replace("```json", "").replace("```", "").strip()
-        )
-        st.session_state.sorular = json.loads(cleaned_text)
+        raw_response = response.text.strip()
+
+        # Regex ile sadece JSON dizisini cımbızla çekme
+        json_match = re.search(r"\[\s*\{.*\}\s*\]", raw_response, re.DOTALL)
+        if json_match:
+          json_str = json_match.group(0)
+        else:
+          json_str = (
+              raw_response.replace("```json", "").replace("```", "").strip()
+          )
+
+        st.session_state.sorular = json.loads(json_str)
         st.success("Test ve sesli yanıtlar hazır!")
 
       except Exception as e:
