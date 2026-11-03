@@ -36,15 +36,41 @@ def metni_seslendir(metin):
 
 if uploaded_file is not None and api_key:
     if st.button("🚀 Testi Hazırla"):
-        with st.spinner("Asistan slaytları inceliyor ve lafları hazırlıyor..."):
+        with st.spinner("Asistan aktif modelleri sorguluyor ve slaytı inceliyor..."):
             try:
-                genai.configure(api_key=api_key)
+                # API Anahtarını Ayarla
+                genai.configure(api_key=api_key.strip())
+                
+                # Google API'den doğrudan aktif modelleri canlı listele
+                active_models = []
+                for m in genai.list_models():
+                    if 'generateContent' in m.supported_generation_methods:
+                        active_models.append(m.name)
+                
+                if not active_models:
+                    st.error("API anahtarınızla erişilebilen aktif bir model bulunamadı. Lütfen API anahtarınızı kontrol edin.")
+                    st.stop()
+                
+                # Öncelikli olarak 'flash' barındıran tam model ismini seç
+                selected_model_name = None
+                for m_name in active_models:
+                    if 'flash' in m_name.lower():
+                        selected_model_name = m_name
+                        break
+                
+                if not selected_model_name:
+                    selected_model_name = active_models[0]
+
+                # Seçilen canlı model ile başlat
+                model = genai.GenerativeModel(selected_model_name)
                 
                 # PDF Metnini Çıkarma
                 pdf_reader = PyPDF2.PdfReader(uploaded_file)
                 text = ""
                 for page in pdf_reader.pages:
-                    text += (page.extract_text() or "") + "\n"
+                    extracted = page.extract_text()
+                    if extracted:
+                        text += extracted + "\n"
                 text = text[:15000]
 
                 # Educato Tarzı Esprili & Argolu Prompt
@@ -77,30 +103,7 @@ if uploaded_file is not None and api_key:
                 {text}
                 """
 
-                # Google'ın önerdiği modelleri sırayla deneyen koruma döngüsü
-                candidate_models = [
-                    'gemini-3.8-flash',
-                    'gemini-1.5-flash',
-                    'gemini-2.0-flash',
-                    'gemini-1.5-pro'
-                ]
-
-                response = None
-                last_error = None
-
-                for model_name in candidate_models:
-                    try:
-                        model = genai.GenerativeModel(model_name)
-                        response = model.generate_content(prompt)
-                        if response and response.text:
-                            break
-                    except Exception as e:
-                        last_error = e
-                        continue
-
-                if not response:
-                    raise Exception(f"Modellere bağlanılamadı. Hata: {last_error}")
-
+                response = model.generate_content(prompt)
                 cleaned_text = response.text.replace("```json", "").replace("```", "").strip()
                 st.session_state.sorular = json.loads(cleaned_text)
                 st.success("Test ve sesli yanıtlar hazır!")
@@ -128,11 +131,4 @@ if st.session_state.sorular:
                     st.error(f"❌ {q['yanlis_tepki']} (Doğru Cevap: {q['dogru_cevap']})")
                     ses_metni = f"{q['yanlis_tepki']} Doğru cevap {q['dogru_cevap']} şıkkıydı. {q['puf_noktasi']}"
                 
-                st.info(f"💡 **Taktik / Püf Noktası:** {q['puf_noktasi']}")
-                
-                audio_file = metni_seslendir(ses_metni)
-                if audio_file:
-                    st.audio(audio_file, format="audio/mp3", autoplay=True)
-            else:
-                st.warning("Önce bir şık seç kanka!")
-        st.write("---")
+                st.info(
