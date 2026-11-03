@@ -54,28 +54,35 @@ def hizli_ses_oynat(metin):
 
 def get_gemini_response(api_key, prompt_text):
     client = genai.Client(api_key=api_key)
-    # Hata veren eski modeller kaldırıldı, Google'ın istediği güncel model sabitlendi.
-    models = ["gemini-3.8-flash"]
+    # Google'ın en dayanıklı ve hızlı yanıt veren güncel modelleri
+    models = ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-1.5-pro"]
     last_error = ""
+    
     for m in models:
-        for _ in range(2):
+        # Sunucu meşgul (503) dönerse pes etmeyip 3 saniye bekleyerek 3 kez tekrar dener
+        for attempt in range(3):
             try:
                 res = client.models.generate_content(model=m, contents=prompt_text)
                 if res and res.text:
                     return res.text
             except Exception as e:
                 last_error = str(e)
-                time.sleep(1.5)
-    raise Exception(f"Google API Hatası: {last_error}")
+                if "503" in last_error or "UNAVAILABLE" in last_error:
+                    time.sleep(3)
+                else:
+                    time.sleep(1)
+    raise Exception(f"Google Sunucuları şu an aşırı yoğun. Lütfen 1-2 dakika sonra tekrar deneyin. Detay: {last_error}")
 
 if uploaded_file is not None and raw_api_key:
     if st.button("🚀 Testi Hazırla"):
-        clean_key = raw_api_key.strip()
-        if not clean_key:
-            st.error("Geçersiz API Anahtarı!")
+        # Klavyenin eklediği 'visibili' gibi kelimeleri kesin olarak siler
+        clean_key = raw_api_key.split()[0].strip()
+        
+        if not clean_key.startswith(("AIza", "AQ.")):
+            st.error("Lütfen geçerli bir Google API anahtarı girin.")
             st.stop()
             
-        with st.spinner("Ders notu inceleniyor ve sorular hazırlanıyor..."):
+        with st.spinner("Ders notu inceleniyor... (Google sunucu yoğunluğuna göre 10-15 sn sürebilir)"):
             try:
                 pdf_reader = PyPDF2.PdfReader(uploaded_file)
                 text = ""
