@@ -5,8 +5,23 @@ import re
 import PyPDF2
 import streamlit as st
 import streamlit.components.v1 as components
-from google import genai
-from gtts import gTTS
+
+# Google'ın hem yeni hem eski kütüphaneleriyle tam uyumluluk
+try:
+  from google import genai
+
+  USE_NEW_SDK = True
+except ImportError:
+  import google.generativeai as genai_legacy
+
+  USE_NEW_SDK = False
+
+try:
+  from gtts import gTTS
+
+  HAS_TTS = True
+except ImportError:
+  HAS_TTS = False
 
 st.set_page_config(
     page_title="Akademik Sınav Asistanı", page_icon="🎓", layout="centered"
@@ -52,6 +67,8 @@ if "sorular" not in st.session_state:
 
 
 def hizli_ses_oynat(metin):
+  if not HAS_TTS:
+    return
   try:
     tts = gTTS(text=metin, lang="tr")
     fp = io.BytesIO()
@@ -71,8 +88,12 @@ def hizli_ses_oynat(metin):
 
 if uploaded_file is not None and raw_api_key:
   if st.button("🚀 Testi Hazırla"):
-    # Klavyenin yapıştırdığı fazla kelimeleri ve boşlukları temizleme
-    clean_key = raw_api_key.strip().split()[0]
+    # Klavyeden veya yapıştırmadan gelen tüm yabancı metinleri (visibili vb.) temizleme
+    clean_key = re.sub(r"[^a-zA-Z0-9_\-]", "", raw_api_key.strip())
+
+    if not clean_key:
+      st.error("Geçersiz API Anahtarı! Lütfen kutucuğu kontrol edin.")
+      st.stop()
 
     with st.spinner("Ders notu inceleniyor ve sorular hazırlanıyor..."):
       try:
@@ -91,41 +112,59 @@ if uploaded_file is not None and raw_api_key:
 
         prompt = (
             "Sen üniversite vize/final düzeyinde akademik sınav soruları"
-            " hazırlayan uzman bir koçsun. Aşağıdaki ders slaytından resmi dille"
-            " yazılmış, orta-zor düzeyde 3 adet 5 şıklı çoktan seçmeli soru"
-            " oluştur.\n\nSADECE aşağıdaki JSON formatında çıktı ver:\n[\n  {\n"
-            '    "soru": "Soru metni...",\n    "A": "A şıkkı", "B": "B şıkkı",'
-            ' "C": "C şıkkı", "D": "D şıkkı", "E": "E şıkkı",\n   '
-            ' "dogru_cevap": "A",\n    "dogru_tepki": "Tebrikler, doğru'
-            ' yanıt!",\n    "yanlis_tepki": "Maalesef yanlış yanıt.",\n   '
-            ' "puf_noktasi": "Akademik Püf Noktası: ..."\n  }\n]\n\nDers'
-            " Notu:\n" + text
+            " hazırlayan uzman bir koçsun. Aşağıdaki ders slaytından"
+            " resmi dille yazılmış, orta-zor düzeyde 3 adet 5 şıklı çoktan"
+            " seçmeli soru oluştur.\n\nSADECE aşağıdaki JSON formatında çıktı"
+            ' ver:\n[\n  {\n    "soru": "Soru metni...",\n    "A": "A'
+            ' şıkkı", "B": "B şıkkı", "C": "C şıkkı", "D": "D şıkkı", "E":'
+            ' "E şıkkı",\n    "dogru_cevap": "A",\n    "dogru_tepki":'
+            ' "Tebrikler, doğru yanıt!",\n    "yanlis_tepki": "Maalesef'
+            ' yanlış yanıt.",\n    "puf_noktasi": "Akademik Püf Noktası:'
+            " ...\"\n  }\n]\n\nDers Notu:\n" + text
         )
 
-        # Yeni Resmi Google GenAI SDK Bağlantısı
-        client = genai.Client(api_key=clean_key)
+        response_text = None
+        last_error_msg = ""
 
-        response = None
-        models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
-        for m in models:
-          try:
-            res = client.models.generate_content(
-                model=m,
-                contents=prompt,
-            )
-            if res and res.text:
-              response = res
-              break
-          except Exception:
-            continue
+        # Google API tarafının talep ettiği güncel modeller
+        candidate_models = [
+            "gemini-3.8-flash",
+            "gemini-3.1-pro-preview",
+            "gemini-2.5-flash",
+        ]
 
-        if not response or not response.text:
-          st.error(
-              "API bağlantısı kurulamadı. Lütfen API anahtarınızı kontrol edin."
-          )
+        if USE_NEW_SDK:
+          client = genai.Client(api_key=clean_key)
+          for model_name in candidate_models:
+            try:
+              res = client.models.generate_content(
+                  model=model_name,
+                  contents=prompt,
+              )
+              if res and res.text:
+                response_text = res.text
+                break
+            except Exception as ex:
+              last_error_msg = str(ex)
+              continue
+        else:
+          genai_legacy.configure(api_key=clean_key)
+          for model_name in candidate_models:
+            try:
+              m_obj = genai_legacy.GenerativeModel(model_name)
+              res = m_obj.generate_content(prompt)
+              if res and res.text:
+                response_text = res.text
+                break
+            except Exception as ex:
+              last_error_msg = str(ex)
+              continue
+
+        if not response_text:
+          st.error(f"Google API Yanıtı / Hata: {last_error_msg}")
           st.stop()
 
-        raw_txt = response.text.strip()
+        raw_txt = response_text.strip()
         json_match = re.search(r"\[\s*\{.*\}\s*\]", raw_txt, re.DOTALL)
         json_str = (
             json_match.group(0)
