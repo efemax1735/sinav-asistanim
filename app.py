@@ -6,28 +6,11 @@ import time
 import PyPDF2
 import streamlit as st
 import streamlit.components.v1 as components
+from google import genai
+from gtts import gTTS
 
-# SDK Kontrolü
-try:
-    from google import genai
-    USE_NEW_SDK = True
-except ImportError:
-    import google.generativeai as genai_legacy
-    USE_NEW_SDK = False
+st.set_page_config(page_title="Akademik Sınav Asistanı", page_icon="🎓", layout="centered")
 
-try:
-    from gtts import gTTS
-    HAS_TTS = True
-except ImportError:
-    HAS_TTS = False
-
-st.set_page_config(
-    page_title="Akademik Sınav Asistanı", 
-    page_icon="🎓", 
-    layout="centered"
-)
-
-# Times New Roman Font ve Okunaklı Büyük Punto
 st.markdown("""
     <style>
         html, body, p, span, label, div, [class*="st-"] {
@@ -58,22 +41,31 @@ if "sorular" not in st.session_state:
     st.session_state.sorular = None
 
 def hizli_ses_oynat(metin):
-    if not HAS_TTS:
-        return
     try:
         tts = gTTS(text=metin, lang='tr')
         fp = io.BytesIO()
         tts.write_to_fp(fp)
         fp.seek(0)
         b64_audio = base64.b64encode(fp.read()).decode('utf-8')
-        html_code = (
-            '<audio id="tts_audio" autoplay controls style="width:100%;">'
-            f'<source src="data:audio/mp3;base64,{b64_audio}" type="audio/mp3">'
-            '</audio><script>var a=document.getElementById("tts_audio"); if(a) a.playbackRate=1.25;</script>'
-        )
+        html_code = f'<audio id="tts_audio" autoplay controls style="width:100%;"><source src="data:audio/mp3;base64,{b64_audio}" type="audio/mp3"></audio><script>var a=document.getElementById("tts_audio"); if(a) a.playbackRate=1.25;</script>'
         components.html(html_code, height=70)
     except Exception:
         pass
+
+def get_gemini_response(api_key, prompt_text):
+    client = genai.Client(api_key=api_key)
+    models = ["gemini-1.5-flash", "gemini-2.5-flash"]
+    last_error = ""
+    for m in models:
+        for _ in range(2):
+            try:
+                res = client.models.generate_content(model=m, contents=prompt_text)
+                if res and res.text:
+                    return res.text
+            except Exception as e:
+                last_error = str(e)
+                time.sleep(1.5)
+    raise Exception(f"Sunucu yoğunluğu veya bağlantı hatası: {last_error}")
 
 if uploaded_file is not None and raw_api_key:
     if st.button("🚀 Testi Hazırla"):
@@ -81,7 +73,7 @@ if uploaded_file is not None and raw_api_key:
         if not clean_key:
             st.error("Geçersiz API Anahtarı!")
             st.stop()
-
+            
         with st.spinner("Ders notu inceleniyor ve sorular hazırlanıyor..."):
             try:
                 pdf_reader = PyPDF2.PdfReader(uploaded_file)
@@ -90,41 +82,57 @@ if uploaded_file is not None and raw_api_key:
                     t = page.extract_text()
                     if t:
                         text += t + "\n"
-
+                
                 if not text.strip():
                     st.error("PDF dosyasından metin okunamadı.")
                     st.stop()
-
-                text = text[:15000]
-
+                    
                 prompt = (
-                    "Sen üniversite vize/final düzeyinde akademik sınav soruları hazırlayan uzman bir koçsun. "
-                    "Aşağıdaki ders slaytından resmi dille yazılmış, orta-zor düzeyde 3 adet 5 şıklı çoktan seçmeli soru oluştur.\n\n"
+                    "Sen üniversite vize ve final düzeyinde akademik sınav soruları hazırlayan uzman bir eğitmensin. "
+                    "Aşağıdaki ders slaytından tamamen resmi dille yazılmış, orta-zor düzeyde 3 adet 5 şıklı çoktan seçmeli soru oluştur.\n\n"
                     "SADECE aşağıdaki JSON formatında çıktı ver:\n[\n  {\n"
                     '    "soru": "Soru metni...",\n'
                     '    "A": "A şıkkı", "B": "B şıkkı", "C": "C şıkkı", "D": "D şıkkı", "E": "E şıkkı",\n'
                     '    "dogru_cevap": "A",\n'
-                    '    "dogru_tepki": "Tebrikler, doğru yanıt!",\n'
+                    '    "dogru_tepki": "Tebrikler, soruyu doğru yanıtladınız.",\n'
                     '    "yanlis_tepki": "Maalesef yanlış yanıt.",\n'
                     '    "puf_noktasi": "Akademik Püf Noktası: ..."\n'
-                    "  }\n]\n\nDers Notu:\n" + text
+                    "  }\n]\n\nDers Notu:\n" + text[:15000]
                 )
+                
+                response_text = get_gemini_response(clean_key, prompt)
+                
+                raw_txt = response_text.strip()
+                json_match = re.search(r"\[\s*\{.*\}\s*\]", raw_txt, re.DOTALL)
+                json_str = json_match.group(0) if json_match else raw_txt.replace("```json", "").replace("```", "").strip()
+                
+                st.session_state.sorular = json.loads(json_str)
+                st.success("Sınav soruları ve sesli açıklamalar hazır!")
+                
+            except Exception as e:
+                st.error(f"Sistem Hatası: {e}")
 
-                response_text = None
-                last_error_msg = ""
-                candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.8-flash"]
-
-                if USE_NEW_SDK:
-                    client = genai.Client(api_key=clean_key)
-                    for model_name in candidate_models:
-                        for attempt in range(2):
-                            try:
-                                res = client.models.generate_content(
-                                    model=model_name,
-                                    contents=prompt
-                                )
-                                if res and res.text:
-                                    response_text = res.text
-                                    break
-                            except Exception as ex:
-                                last_error
+if st.session_state.sorular:
+    st.write("---")
+    for i, q in enumerate(st.session_state.sorular):
+        st.subheader(f"Soru {i+1}")
+        st.write(q["soru"])
+        
+        secenekler = [f"A) {q['A']}", f"B) {q['B']}", f"C) {q['C']}", f"D) {q['D']}", f"E) {q['E']}"]
+        secim = st.radio("Cevabınız:", secenekler, key=f"rad_{i}", index=None)
+        
+        if st.button("Cevabı Kontrol Et 🔊", key=f"btn_{i}"):
+            if secim:
+                secilen = secim.split(")")[0]
+                if secilen == q["dogru_cevap"]:
+                    st.success(f"✅ {q['dogru_tepki']}")
+                    ses = f"{q['dogru_tepki']} {q['puf_noktasi']}"
+                else:
+                    st.error(f"❌ {q['yanlis_tepki']} (Doğru Cevap: {q['dogru_cevap']})")
+                    ses = f"{q['yanlis_tepki']} Doğru cevap {q['dogru_cevap']} şıkkıdır. {q['puf_noktasi']}"
+                    
+                st.info(f"💡 **Sınav Püf Noktası:** {q['puf_noktasi']}")
+                hizli_ses_oynat(ses)
+            else:
+                st.warning("Lütfen bir seçenek işaretleyin.")
+        st.write("---")
