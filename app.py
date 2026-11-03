@@ -18,7 +18,7 @@ st.set_page_config(
     page_title="Akademik Sınav Asistanı", page_icon="🎓", layout="centered"
 )
 
-# Times New Roman Font ve Büyük Okunaklı Punto Tasarımı
+# Times New Roman Font ve Okunaklı Punto Tasarımı
 st.markdown(
     """
     <style>
@@ -122,7 +122,8 @@ if uploaded_file is not None and api_key:
             f" Notu:\n{text}"
         )
 
-        models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
+        # Güncel API model sıralaması
+        models_to_try = ["gemini-3.8-flash", "gemini-1.5-flash"]
         response = None
         last_err = None
 
