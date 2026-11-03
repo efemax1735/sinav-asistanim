@@ -25,7 +25,7 @@ if uploaded_file is not None and api_key:
                 text = ""
                 for page in pdf_reader.pages:
                     text += page.extract_text() + "\n"
-                text = text[:15000]
+                text = text[:40000]
 
                 prompt = f"""
                 Sen zorlu eczacılık sınavlarına hazırlayan uzman bir asistansın.
