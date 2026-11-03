@@ -19,7 +19,7 @@ if uploaded_file is not None and api_key:
         with st.spinner("Slaytlar okunuyor ve sorular hazırlanıyor..."):
             try:
                 genai.configure(api_key=api_key)
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                model = genai.GenerativeModel('gemini-2.5-pro')
                 
                 pdf_reader = PyPDF2.PdfReader(uploaded_file)
                 text = ""
